@@ -1,0 +1,3 @@
+.vscode
+demo/basic_send/*.o
+demo/basic_send/rdma_send
