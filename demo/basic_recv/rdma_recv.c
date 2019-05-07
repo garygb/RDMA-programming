@@ -3,13 +3,14 @@
 #include <string.h>
 #include <stdlib.h>
 #include <arpa/inet.h>
+#include <unistd.h>
 
 // MR的大小
 #define REGION_SIZE 0x1800
 // minimum CQ size
 #define CQ_SIZE 0x100
 //maximum number of outstanding WQ that can be posted to SQ
-#define MAX_NUM_SENDS 0x10
+#define MAX_NUM_RECVS 0x10
 #define MAX_GATHER_ENTRIES 2
 #define MAX_SCATTER_ENTRIES 2
 
@@ -18,78 +19,23 @@
 #define WELL_KNOWN_QKEY 0x11111111
 
 
-static void usage(const char *argv0)
-{
-	printf("Usage:\n");
-	printf("  %s send packets to remote\n", argv0);
-	printf("\n");
-	printf("Options:\n");
-	printf("  -d, --dev-name=<dev>   use  device <dev>)\n");
-	printf("  -i, --dev_port=<port>  use port <port> of device (default 1)\n");
-	printf("  -l, --dest_lid=<lid>  use lid as remote lid on destination port (Infiniband only)\n");
-	printf("  -g, --dest_gid=<gid>  use gid as remote gid on destination port\n");
-	printf("          <gid format>=xxxx:xxxx:xxxx:xxxx\n");
-	printf("  -q, --dest_qpn=<qpn>  use qpn for remote queue pair number\n");
-}
-
-static int parse_gid(char *gid_str, union ibv_gid *gid) {
-	uint16_t mcg_gid[8];
-	char *ptr = gid_str;
-	char *term = gid_str;
-	int i = 0;
-
-	term = strtok(gid_str, ":");
-	while(1){ 
-		mcg_gid[i] = htons((uint16_t)strtoll(term, NULL, 16));
-
-		term = strtok(NULL, ":");
-		if (term == NULL)
-			break;
-
-		if ((term - ptr) != 5) {
-			fprintf(stderr, "Invalid GID format.\n");
-			return -1;
-		}
-		ptr = term;
-
-		i += 1;
-	};
-
-	if (i != 7) {
-		fprintf(stderr, "Invalid GID format (2).\n");
-		return -1;
-	}
-
-	memcpy(gid->raw, mcg_gid,16);
-	return 0;
-}
-
-
-
-
-
 // 实际过程中需要传入的参数：
 // 1. devname
-// 2. dest_gid_str
-// 3. dev_port
-// 4. dest_qpn(在recv端创建QP的时候生成)
+// 2. dev_port
 int main(int argc, char** argv) {
 
     struct ibv_device **device_list;
     int    number_device;
     int    i;
     char   *devname = "mlx4_0";
-    char   dest_gid_str[] = "fe80:0000:0000:0000:0202:c9ff:fe05:6a21"; // 2.1 10G网卡第一个端口
+    // char   dest_gid_str[] = "fe80:0000:0000:0000:0202:c9ff:fe05:6a21"; // 2.1 10G网卡第一个端口
     // Infiniband only
-    uint16_t  dest_lid = 0;
+    // uint16_t  dest_lid = 0;
     int dev_port = 1; // 网卡的第一个端口为1
 
     //如何获得destination QP number?
-    int dest_qpn = 0;
+    // int dest_qpn = 0;
 
-    dest_qpn = strtol(argv[1], NULL, 10);
-    printf("dest_qpn: %d", dest_qpn);
-    printf("argv[1]: %s\n", argv[1]);
 
     device_list = ibv_get_device_list(&number_device);
 
@@ -130,8 +76,9 @@ int main(int argc, char** argv) {
 
     char mr_buffer[REGION_SIZE];
     // 第四步：将分配的这段MR注册给网卡
-    // 查看了user manual手册，Permission这个参数设置为0代表只能本地读
-    struct ibv_mr *mr = ibv_reg_mr(pd, mr_buffer, REGION_SIZE, 0);
+    // ***与Send端不同-1***
+    // 这里Permission改为支持本地写，详见user manual手册
+    struct ibv_mr *mr = ibv_reg_mr(pd, mr_buffer, REGION_SIZE, IBV_ACCESS_LOCAL_WRITE);
     if (!mr) {
         fprintf(stderr, "Couldn't register MR.\n");
         goto close_pd;
@@ -159,8 +106,11 @@ int main(int argc, char** argv) {
         // QP send和QP recv元素的属性
         .cap = {
             //maximum number of outstanding WQ that can be posted to SQ
-            .max_send_wr  = MAX_NUM_SENDS,
-            .max_recv_wr  = 0,
+            // ***与Send端不同-2***
+            // 因为该程序值需要receive，因此max_send_wr由MAX_NUM_SENDS改为0
+            // max_recv_wr由0改为MAX_NUM_RECVS
+            .max_send_wr  = 0,
+            .max_recv_wr  = MAX_NUM_RECVS,
             .max_send_sge = MAX_GATHER_ENTRIES,
             .max_recv_sge = MAX_SCATTER_ENTRIES,
         },
@@ -209,49 +159,84 @@ int main(int argc, char** argv) {
         goto free_qp;
     }
 
-    memset(&qp_modify_attr, 0, sizeof(qp_modify_attr));
+    // ***与Send端不同-3***
+    // QP只需要进入RTR状态就行
 
-    qp_modify_attr.qp_state = IBV_QPS_RTS;
-    qp_modify_attr.sq_psn = 1;
-    // RTR -> RTS
-    if (ibv_modify_qp(qp, &qp_modify_attr, IBV_QP_STATE | IBV_QP_SQ_PSN)) {
-        fprintf(stderr, "Failed to modify QP to RTS.\n");
-        goto free_qp;
-    }
-    
+    // memset(&qp_modify_attr, 0, sizeof(qp_modify_attr));
+
+    // qp_modify_attr.qp_state = IBV_QPS_RTS;
+    // qp_modify_attr.sq_psn = 1;
+    // // RTR -> RTS
+    // if (ibv_modify_qp(qp, &qp_modify_attr, IBV_QP_STATE | IBV_QP_SQ_PSN)) {
+    //     fprintf(stderr, "Failed to modify QP to RTS.\n");
+    //     goto free_qp;
+    // }
+
+    // ***与Send端不同-4***
+    // 不需要创建Address Vector   
+
     // 第八步：创建Address Vector
-    union ibv_gid dest_gid;
-    if (parse_gid(dest_gid_str, &dest_gid)) {
-        usage(argv[0]);
-        goto free_qp;
-    }
+    // union ibv_gid dest_gid;
+    // if (parse_gid(dest_gid_str, &dest_gid)) {
+    //     usage(argv[0]);
+    //     goto free_qp;
+    // }
     
-    struct ibv_ah_attr ah_attr;
+    // struct ibv_ah_attr ah_attr;
 
-    // indicating the presence of destination gid
-    ah_attr.is_global = 1;
-    ah_attr.grh.dgid = dest_gid;
-    // the index of the source gid of our packet
-    ah_attr.grh.sgid_index = 0;
-    // achieved by running "ibstatus"
-    ah_attr.dlid = dest_lid;
-    // port num
-    ah_attr.port_num = dev_port;
- 	ah_attr.grh.hop_limit = 1;
-	ah_attr.sl = 0;   
+    // // indicating the presence of destination gid
+    // ah_attr.is_global = 1;
+    // ah_attr.grh.dgid = dest_gid;
+    // // the index of the source gid of our packet
+    // ah_attr.grh.sgid_index = 0;
+    // // achieved by running "ibstatus"
+    // ah_attr.dlid = dest_lid;
+    // // port num
+    // ah_attr.port_num = dev_port;
+ 	// ah_attr.grh.hop_limit = 1;
+	// ah_attr.sl = 0;   
 
-    struct ibv_ah *ah = ibv_create_ah(pd, &ah_attr);
-    if (!ah) {
-        fprintf(stderr, "Failed to address handle.\n");
-        goto free_qp;
-    }
+    // struct ibv_ah *ah = ibv_create_ah(pd, &ah_attr);
+    // if (!ah) {
+    //     fprintf(stderr, "Failed to address handle.\n");
+    //     goto free_qp;
+    // }
+
+    // ***与Send端不同-5***
+    // Post Work Request配置不同
 
     // 第九步：Post Work Request
     // work request data structure
-    struct ibv_send_wr wr;
-    struct ibv_send_wr *bad_wr;
+    struct ibv_recv_wr wr;
+    struct ibv_recv_wr *bad_wr;
     struct ibv_sge list;
 
+    fprintf(stdout, "Listening on QP Number 0x%06x\n", qp->qp_num);
+    sleep(1);
+
+#define MAX_MSG_SIZE 0x100    
+
+    for (i = 0; i < 4; i++) {
+        // 填好收到哪里，收多少大，mr的local key
+        list.addr = (uint64_t)(mr_buffer + MAX_MSG_SIZE * i);
+        list.length = MAX_MSG_SIZE;
+        list.lkey = mr->lkey;
+
+        //填好Work Request
+        wr.wr_id = i;
+        wr.sg_list = &list;
+        wr.num_sge = 1;
+        wr.next = NULL;
+
+        // 调用ibv_post_recv函数来收数据
+        // *****注意：ibv_post_recv函数必须在发送之前被调用。*****
+        if (ibv_post_recv(qp, &wr, &bad_wr)) {
+            fprintf(stderr, "Function ibv_post_recv failed.\n");
+            goto free_qp;
+        }
+    }
+
+/*
     sprintf(mr_buffer, TEXT_MSG);
     list.addr = (uint64_t)mr_buffer;
     list.length = strlen(TEXT_MSG);
@@ -291,12 +276,45 @@ int main(int argc, char** argv) {
         fprintf(stderr, "Function ibv_post_send failed.\n");
         goto free_qp;
     }
+*/
+
+    // ***与Send端不同-6***
+    // Poll for completion不同(这里只是写法上有区别，操作流程没变)
 
     // 第十步：Poll for completion (retrieve Work Completion from CQ)
     
+    // Receive端的WC entry包含了：
+    // 1. Source MAC/LID of sender
+    // 2. Source QP
+    // 3. Destination QP
+    // 4. Destination MAC/LID index
+    // 5. Size of data scattered by the adapter
     struct ibv_wc wc;
     int ne;
 
+    // 当一个接收的WR被消费，一个complete entry一定会被产生
+    for (i = 0; i < 4; i++) {
+        do {
+            ne = ibv_poll_cq(cq, 1, &wc);
+        } while (ne == 0);
+        
+        // call return negative value if function fails
+        if (ne < 0) {
+            fprintf(stderr, "CQ is in error state.");
+            goto free_qp;
+        }
+
+        if (wc.status) {
+            fprintf(stderr, "Bad completion (status %d).\n", (int)wc.status);
+            goto free_qp;
+        } else {
+            // 对于unreliable datagram QP, 有一个Global Routing Header(GRH)，
+            // 这个值写在Receive Buffer之前，大小为40 Bytes
+            printf("received: %s\n", mr_buffer + MAX_MSG_SIZE*i + 40);
+        }
+    }
+
+/*
     // Arguments:
     // 1. CQ be retrieved
     // 2. maximum number of completions to read from a CQ
@@ -318,6 +336,7 @@ int main(int argc, char** argv) {
         fprintf(stderr, "Bad completion (status %d).\n", (int)wc.status);
         goto free_qp;
     }
+*/
 
 
 free_qp:    

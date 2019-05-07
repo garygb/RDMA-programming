@@ -1,3 +1,5 @@
 .vscode
 demo/basic_send/*.o
 demo/basic_send/rdma_send
+demo/basic_recv/*.o
+demo/basic_recv/rdma_recv
