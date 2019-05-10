@@ -323,9 +323,9 @@ int main(int argc, char** argv) {
             // 对于unreliable datagram QP, 有一个Global Routing Header(GRH)，
             // 这个值写在Receive Buffer之前，大小为40 Bytes
             char* start_msg_addr = mr_buffer + MAX_MSG_SIZE*1024*1024*i + 40;
-            printf("received: %s\n", );
+            printf("received a file.");
 
-            FilE * fp = NULL;
+            FILE * fp = NULL;
             fp = fopen("./receive.jpg", "wb");
 
             if (!fp) {
