@@ -111,10 +111,10 @@ int main(int argc, char** argv) {
 
     FILE *fp = NULL;
 
-    fp = fopen("./test.jpg", "rb");
+    fp = fopen("./send.jpg", "rb");
     if (!fp) {
-    	fprintf(stderr, "Can't open target file.\n");
-	return 0;
+        fprintf(stderr, "Can't open target file.\n");
+	    return 0;
     }
     
     // 获得文件的大小
@@ -125,10 +125,12 @@ int main(int argc, char** argv) {
 
     int read_bytes = 0;
     long total_read_bytes = 0;
-    while ((read_bytes = fread(mr_buffer + sizeof(char)*total_read_bytes, 1, BLOCK_SIZE, fp)) != 0) {
-	total_read_bytes += read_bytes;
+    while ((read_bytes = fread(mr_buffer + sizeof(char)*total_read_bytes, sizeof(char), BLOCK_SIZE, fp)) != 0) {
+	   total_read_bytes += read_bytes;
     }
     
+    fclose(fp);
+
     #ifdef DEBUG
     printf("file_size = %ld bytes.\n", file_size);
     printf("read_file_size = %ld bytes.\n", total_read_bytes);

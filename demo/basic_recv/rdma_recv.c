@@ -18,6 +18,11 @@
 
 #define WELL_KNOWN_QKEY 0x11111111
 
+// for time testing
+#define MEM_POOL_SIZE 2000 //单位:MB
+#define BLOCK_SIZE 1024 //一次从内存中将数据读取到文件的大小
+#define DEBUG
+
 // usage: ./rdma_recv
 // 程序会打印出可以与之建立通信的QPN
 
@@ -76,11 +81,16 @@ int main(int argc, char** argv) {
         goto close_device;
     }
 
-    char mr_buffer[REGION_SIZE];
+    char *mr_buffer = (char*) malloc(MEM_POOL_SIZE * 1024 * 1024);
+    if (!mr_buffer) {
+        fprintf(stderr, "Could't allocate %d MB memory.\n", MEM_POOL_SIZE);
+        return 0;
+    }
+    // char mr_buffer[REGION_SIZE];
     // 第四步：将分配的这段MR注册给网卡
     // ***与Send端不同-1***
     // 这里Permission改为支持本地写，详见user manual手册
-    struct ibv_mr *mr = ibv_reg_mr(pd, mr_buffer, REGION_SIZE, IBV_ACCESS_LOCAL_WRITE);
+    struct ibv_mr *mr = ibv_reg_mr(pd, mr_buffer, MEM_POOL_SIZE * 1024 * 1024, IBV_ACCESS_LOCAL_WRITE);
     if (!mr) {
         fprintf(stderr, "Couldn't register MR.\n");
         goto close_pd;
@@ -216,12 +226,12 @@ int main(int argc, char** argv) {
     fprintf(stdout, "Listening on QP Number 0x%06x\n", qp->qp_num);
     sleep(1);
 
-#define MAX_MSG_SIZE 0x100    
+#define MAX_MSG_SIZE 500 // MB  
 
     for (i = 0; i < 4; i++) {
         // 填好收到哪里，收多少大，mr的local key
-        list.addr = (uint64_t)(mr_buffer + MAX_MSG_SIZE * i);
-        list.length = MAX_MSG_SIZE;
+        list.addr = (uint64_t)(mr_buffer + MAX_MSG_SIZE*1024*1024 * i);
+        list.length = MAX_MSG_SIZE*1024*1024;
         list.lkey = mr->lkey;
 
         //填好Work Request
@@ -312,7 +322,26 @@ int main(int argc, char** argv) {
         } else {
             // 对于unreliable datagram QP, 有一个Global Routing Header(GRH)，
             // 这个值写在Receive Buffer之前，大小为40 Bytes
-            printf("received: %s\n", mr_buffer + MAX_MSG_SIZE*i + 40);
+            char* start_msg_addr = mr_buffer + MAX_MSG_SIZE*1024*1024*i + 40;
+            printf("received: %s\n", );
+
+            FilE * fp = NULL;
+            fp = fopen("./receive.jpg", "wb");
+
+            if (!fp) {
+                fprintf(stderr, "Can't open target file.\n");
+                return 0;
+            }
+
+            long file_size = 22988927;
+
+            int i = 0;
+            for (i = 0; i < file_size/BLOCK_SIZE; i++) {
+                fwrite(start_msg_addr + i*BLOCK_SIZE, sizeof(char), BLOCK_SIZE, fp);
+            }
+            int remainder = file_size - (BLOCK_SIZE * i);
+            fwrite(start_msg_addr + i*BLOCK_SIZE, sizeof(char), remainder, fp);
+            fclose(fp);
         }
     }
 
