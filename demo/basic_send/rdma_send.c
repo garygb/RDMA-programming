@@ -21,7 +21,8 @@
 
 // for time testing
 #define MEM_POOL_SIZE 500 //单位:MB
-
+#define BLOCK_SIZE 1024 //一次读取文件内容到MEM_POOL的单位大小
+#define DEBUG
 
 static void usage(const char *argv0)
 {
@@ -112,18 +113,26 @@ int main(int argc, char** argv) {
 
     fp = fopen("./test.jpg", "rb");
     if (!fp) {
-    	fprintf(stderr, "Can't open target file.\n", );
+    	fprintf(stderr, "Can't open target file.\n");
+	return 0;
     }
     
     // 获得文件的大小
     long file_size = 0;
     fseek(fp, 0, SEEK_END);
     file_size = ftell(fp);
+    fseek(fp, 0, SEEK_SET);
 
-    long read_file_size = fread(mr_buffer, 1, file_size, fp);
-    if (read_file_size != file_size) {
-    	fprintf(stderr, "Load file to memory pool failed.\n", );
+    int read_bytes = 0;
+    long total_read_bytes = 0;
+    while ((read_bytes = fread(mr_buffer + sizeof(char)*total_read_bytes, 1, BLOCK_SIZE, fp)) != 0) {
+	total_read_bytes += read_bytes;
     }
+    
+    #ifdef DEBUG
+    printf("file_size = %ld bytes.\n", file_size);
+    printf("read_file_size = %ld bytes.\n", total_read_bytes);
+    #endif
 
     device_list = ibv_get_device_list(&number_device);
 
@@ -301,7 +310,7 @@ int main(int argc, char** argv) {
 
     // sprintf(mr_buffer, TEXT_MSG);
     list.addr = (uint64_t)mr_buffer;
-    list.length = read_file_size;
+    list.length = total_read_bytes;
     // 注册好了MR本身就带有了local key
     list.lkey = mr->lkey;
 
