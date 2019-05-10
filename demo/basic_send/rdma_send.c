@@ -66,7 +66,7 @@ static int parse_gid(char *gid_str, union ibv_gid *gid) {
 
 
 
-
+// usage: ./rdma_send <destnation qpn(十进制)>
 
 // 实际过程中需要传入的参数：
 // 1. devname
