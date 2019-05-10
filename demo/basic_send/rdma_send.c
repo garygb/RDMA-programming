@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <arpa/inet.h>
+#include <time.h>
 
 // MR的大小
 #define REGION_SIZE 0x1800
@@ -84,6 +85,10 @@ int main(int argc, char** argv) {
     uint16_t  dest_lid = 0;
     int dev_port = 1; // 网卡的第一个端口为1
 
+    // 用来计时
+    clock_t start_alloc, finish_alloc;
+    clock_t start_send, finish_send;
+
     //如何获得destination QP number?
     int dest_qpn = 0;
 
@@ -112,6 +117,8 @@ int main(int argc, char** argv) {
         goto free_dev_list;
     }
 
+    start_alloc = clock();
+
     struct ibv_device *device = device_list[i];
 
     // 第二步：打开设备(设备名指定)
@@ -136,6 +143,8 @@ int main(int argc, char** argv) {
         fprintf(stderr, "Couldn't register MR.\n");
         goto close_pd;
     }
+
+
 
     // printf("Register MR successful.\n");
 
@@ -246,6 +255,12 @@ int main(int argc, char** argv) {
         goto free_qp;
     }
 
+    finish_alloc = clock();
+
+    double alloc_time = (double)(finish_alloc - start_alloc) / CLOCKS_PER_SEC;
+
+    start_send = clock();
+
     // 第九步：Post Work Request
     // work request data structure
     struct ibv_send_wr wr;
@@ -319,6 +334,11 @@ int main(int argc, char** argv) {
         goto free_qp;
     }
 
+    finish_send = clock();
+    double send_time = (double)(finish_send - start_send) / CLOCKS_PER_SEC;
+
+    printf("Allocation process spend %.5f seconds.\n", alloc_time);
+    printf("Sending process spend %.5f seconds.\n", send_time);
 
 free_qp:    
     ibv_destroy_qp(qp);
