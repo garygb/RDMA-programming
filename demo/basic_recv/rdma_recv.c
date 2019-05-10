@@ -18,6 +18,8 @@
 
 #define WELL_KNOWN_QKEY 0x11111111
 
+// usage: ./rdma_recv
+// 程序会打印出可以与之建立通信的QPN
 
 // 实际过程中需要传入的参数：
 // 1. devname

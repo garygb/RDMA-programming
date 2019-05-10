@@ -19,6 +19,10 @@
 #define WELL_KNOWN_QKEY 0x11111111
 
 
+// for time testing
+#define MEM_POOL_SIZE 500 //单位:MB
+
+
 static void usage(const char *argv0)
 {
 	printf("Usage:\n");
@@ -67,7 +71,7 @@ static int parse_gid(char *gid_str, union ibv_gid *gid) {
 
 
 
-
+// usage: ./rdma_send <destnation qpn(十进制)>
 
 // 实际过程中需要传入的参数：
 // 1. devname
@@ -95,6 +99,31 @@ int main(int argc, char** argv) {
     dest_qpn = strtol(argv[1], NULL, 10);
     printf("dest_qpn: %d", dest_qpn);
     printf("argv[1]: %s\n", argv[1]);
+
+
+    // 在最初准备好一个够大的内存池
+    char *mr_buffer = (char*) malloc(MEM_POOL_SIZE * 1024 * 1024);
+    if (!mr_buffer) {
+    	fprintf(stderr, "Could't allocate %d MB memory.\n", MEM_POOL_SIZE);
+    	return 0;
+    }
+
+    FILE *fp = NULL;
+
+    fp = fopen("./test.jpg", "rb");
+    if (!fp) {
+    	fprintf(stderr, "Can't open target file.\n", );
+    }
+    
+    // 获得文件的大小
+    long file_size = 0;
+    fseek(fp, 0, SEEK_END);
+    file_size = ftell(fp);
+
+    long read_file_size = fread(mr_buffer, 1, file_size, fp);
+    if (read_file_size != file_size) {
+    	fprintf(stderr, "Load file to memory pool failed.\n", );
+    }
 
     device_list = ibv_get_device_list(&number_device);
 
@@ -135,10 +164,12 @@ int main(int argc, char** argv) {
         goto close_device;
     }
 
-    char mr_buffer[REGION_SIZE];
+    // char mr_buffer[REGION_SIZE];
+
+
     // 第四步：将分配的这段MR注册给网卡
     // 查看了user manual手册，Permission这个参数设置为0代表只能本地读
-    struct ibv_mr *mr = ibv_reg_mr(pd, mr_buffer, REGION_SIZE, 0);
+    struct ibv_mr *mr = ibv_reg_mr(pd, mr_buffer, MEM_POOL_SIZE * 1024 * 1024, 0);
     if (!mr) {
         fprintf(stderr, "Couldn't register MR.\n");
         goto close_pd;
@@ -267,9 +298,10 @@ int main(int argc, char** argv) {
     struct ibv_send_wr *bad_wr;
     struct ibv_sge list;
 
-    sprintf(mr_buffer, TEXT_MSG);
+
+    // sprintf(mr_buffer, TEXT_MSG);
     list.addr = (uint64_t)mr_buffer;
-    list.length = strlen(TEXT_MSG);
+    list.length = read_file_size;
     // 注册好了MR本身就带有了local key
     list.lkey = mr->lkey;
 
