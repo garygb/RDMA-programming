@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <arpa/inet.h>
+#include <time.h>
 
 // MR的大小
 #define REGION_SIZE 0x1800
@@ -16,6 +17,8 @@
 #define TEXT_MSG "Hello UD :)"
 
 #define WELL_KNOWN_QKEY 0x11111111
+
+#define MEM_POOL_SIZE (500 * 1024 * 1024)
 
 
 static void usage(const char *argv0)
@@ -87,6 +90,9 @@ int main(int argc, char** argv) {
     //如何获得destination QP number?
     int dest_qpn = 0;
 
+    clock_t start_alloc, finish_alloc;
+    clock_t start_send, finish_send;
+
     dest_qpn = strtol(argv[1], NULL, 10);
     printf("dest_qpn: %d", dest_qpn);
     printf("argv[1]: %s\n", argv[1]);
@@ -114,6 +120,8 @@ int main(int argc, char** argv) {
 
     struct ibv_device *device = device_list[i];
 
+    start_alloc = clock();
+
     // 第二步：打开设备(设备名指定)
     struct ibv_context *context = ibv_open_device(device);
     if (!context) {
@@ -128,10 +136,11 @@ int main(int argc, char** argv) {
         goto close_device;
     }
 
-    char mr_buffer[REGION_SIZE];
+    // char mr_buffer[REGION_SIZE];
+    char* mr_buffer = (char*) malloc(MEM_POOL_SIZE);
     // 第四步：将分配的这段MR注册给网卡
     // 查看了user manual手册，Permission这个参数设置为0代表只能本地读
-    struct ibv_mr *mr = ibv_reg_mr(pd, mr_buffer, REGION_SIZE, 0);
+    struct ibv_mr *mr = ibv_reg_mr(pd, mr_buffer, MEM_POOL_SIZE, 0);
     if (!mr) {
         fprintf(stderr, "Couldn't register MR.\n");
         goto close_pd;
@@ -283,6 +292,13 @@ int main(int argc, char** argv) {
     // WELL_KNOWN_QKEY generatee all QP in this example share the same qkey
     wr.wr.ud.remote_qkey = WELL_KNOWN_QKEY;
 
+
+    finish_alloc = clock();
+
+    double alloc_time = (double)(finish_alloc - start_alloc) / CLOCKS_PER_SEC;
+
+    start_send = clock();
+
     // 三个参数：
     // 1. created QP
     // 2. pointer to the first WR 
@@ -319,6 +335,11 @@ int main(int argc, char** argv) {
         goto free_qp;
     }
 
+    finish_send = clock();
+    double send_time = (double)(finish_send - start_send) / CLOCKS_PER_SEC;
+
+    printf("Allocation process spend %.5f seconds.\n", alloc_time);
+    printf("Sending process spend %.5f seconds.\n", send_time);
 
 free_qp:    
     ibv_destroy_qp(qp);

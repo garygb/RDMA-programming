@@ -213,7 +213,7 @@ int main(int argc, char** argv) {
     struct ibv_recv_wr *bad_wr;
     struct ibv_sge list;
 
-    fprintf(stdout, "Listening on QP Number 0x%06x\n", qp->qp_num);
+    fprintf(stdout, "Listening on QP Number %d\n", qp->qp_num);
     sleep(1);
 
 #define MAX_MSG_SIZE 0x100    
